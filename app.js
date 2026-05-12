@@ -337,8 +337,9 @@ function buildSubtitles(tokens, settings) {
 // ===== Separate original and translation tokens =====
 function splitTokensByTranslation(tokens) {
     const original = [];
-    const translated = [];
-
+    const translatedBlocks = [];
+    
+    let currentTranslatedBlock = [];
     let blockStartMs = 0;
     let blockEndMs = 0;
     let inTranslationBlock = false;
@@ -346,16 +347,14 @@ function splitTokensByTranslation(tokens) {
     for (const t of tokens) {
         if (t.translation_status === 'translation') {
             inTranslationBlock = true;
-            let tCopy = { ...t };
-            // If translation token lacks proper timestamps, use the preceding original block's range
-            if (!tCopy.end_ms || (tCopy.start_ms === 0 && tCopy.end_ms === 0)) {
-                tCopy.start_ms = blockStartMs;
-                tCopy.end_ms = blockEndMs;
-            }
-            translated.push(tCopy);
+            currentTranslatedBlock.push({ ...t });
         } else {
             if (inTranslationBlock) {
-                // Started a new block of original tokens
+                // Started a new block of original tokens -> save previous translation block
+                if (currentTranslatedBlock.length > 0) {
+                    translatedBlocks.push({ start: blockStartMs, end: blockEndMs, tokens: currentTranslatedBlock });
+                    currentTranslatedBlock = [];
+                }
                 inTranslationBlock = false;
                 blockStartMs = t.start_ms || 0;
             } else if (original.length === 0) {
@@ -367,6 +366,32 @@ function splitTokensByTranslation(tokens) {
             original.push(t);
         }
     }
+    // Flush the final translation block if exists
+    if (inTranslationBlock && currentTranslatedBlock.length > 0) {
+        translatedBlocks.push({ start: blockStartMs, end: blockEndMs, tokens: currentTranslatedBlock });
+    }
+
+    // Linearly interpolate timestamps for translation tokens based on character length
+    const translated = [];
+    for (const block of translatedBlocks) {
+        const duration = block.end - block.start;
+        const totalChars = block.tokens.reduce((sum, t) => sum + (t.text ? t.text.length : 0), 0);
+        let currentMs = block.start;
+        
+        for (const t of block.tokens) {
+            const charLen = t.text ? t.text.length : 0;
+            const tDur = totalChars > 0 ? (charLen / totalChars) * duration : 0;
+            
+            // Assign interpolated times if missing or 0
+            if (!t.end_ms || (t.start_ms === 0 && t.end_ms === 0)) {
+                t.start_ms = Math.round(currentMs);
+                t.end_ms = Math.round(currentMs + tDur);
+            }
+            currentMs += tDur;
+            translated.push(t);
+        }
+    }
+
     return { original, translated };
 }
 

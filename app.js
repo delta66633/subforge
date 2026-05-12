@@ -334,113 +334,6 @@ function buildSubtitles(tokens, settings) {
     return subs;
 }
 
-// ===== Align Translated Subtitles 1:1 with Original =====
-function alignTranslatedSubtitles(translatedTokens, originalSubs, settings) {
-    if (!translatedTokens || translatedTokens.length === 0 || originalSubs.length === 0) return [];
-    
-    const translatedWords = tokensToWords(translatedTokens);
-    const alignedSubs = [];
-
-    let wIdx = 0;
-    for (let i = 0; i < originalSubs.length; i++) {
-        const sub = originalSubs[i];
-        let subWords = [];
-        
-        while (wIdx < translatedWords.length) {
-            const w = translatedWords[wIdx];
-            const wMid = (w.start_ms + w.end_ms) / 2;
-            
-            if (wMid < sub.start_ms) {
-                subWords.push(w);
-                wIdx++;
-            } else if (wMid <= sub.end_ms) {
-                subWords.push(w);
-                wIdx++;
-            } else {
-                if (i < originalSubs.length - 1) {
-                    const nextSub = originalSubs[i + 1];
-                    if (wMid < nextSub.start_ms) {
-                        const distToCurrent = wMid - sub.end_ms;
-                        const distToNext = nextSub.start_ms - wMid;
-                        if (distToCurrent <= distToNext) {
-                            subWords.push(w);
-                            wIdx++;
-                            continue;
-                        } else {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                } else {
-                    subWords.push(w);
-                    wIdx++;
-                }
-            }
-        }
-        
-        let text = subWords.map(w => w.text).join(' ').replace(/\s+/g, ' ').trim();
-        
-        if (settings.speakerDiarization && settings.includeSpeakerLabel && subWords.length > 0 && subWords[0].speaker) {
-            text = `[${subWords[0].speaker}] ${text}`;
-        }
-        
-        if (settings.maxLines > 1 && text.length > settings.maxChars) {
-            const mid = Math.ceil(text.length / settings.maxLines);
-            const lines = [];
-            let pos = 0;
-            for (let l = 0; l < settings.maxLines && pos < text.length; l++) {
-                let end = Math.min(pos + mid, text.length);
-                if (l < settings.maxLines - 1 && end < text.length) {
-                    let sp = text.lastIndexOf(' ', end);
-                    if (sp > pos) end = sp;
-                }
-                lines.push(text.slice(pos, end).trim());
-                pos = end + (text[end] === ' ' ? 1 : 0);
-            }
-            text = lines.filter(Boolean).join('\n');
-        }
-        
-        alignedSubs.push({
-            start_ms: sub.start_ms,
-            end_ms: sub.end_ms,
-            text: text
-        });
-    }
-    
-    if (wIdx < translatedWords.length && alignedSubs.length > 0) {
-        const leftover = translatedWords.slice(wIdx).map(w => w.text).join(' ').replace(/\s+/g, ' ').trim();
-        if (leftover) {
-            alignedSubs[alignedSubs.length - 1].text += ' ' + leftover;
-        }
-    }
-    
-    // Clean up empty subtitles by merging their timeframes into adjacent subtitles
-    const cleaned = [];
-    let pendingStartMs = null;
-    for (let i = 0; i < alignedSubs.length; i++) {
-        const s = alignedSubs[i];
-        if (s.text.trim() === '') {
-            if (cleaned.length > 0) {
-                // Extend previous subtitle to cover this empty block
-                cleaned[cleaned.length - 1].end_ms = s.end_ms;
-            } else {
-                // If it's the very first block, save the start_ms for the next valid block
-                if (pendingStartMs === null) pendingStartMs = s.start_ms;
-            }
-        } else {
-            const newSub = { ...s };
-            if (pendingStartMs !== null) {
-                newSub.start_ms = pendingStartMs;
-                pendingStartMs = null;
-            }
-            cleaned.push(newSub);
-        }
-    }
-
-    return cleaned;
-}
-
 // ===== Separate original and translation tokens =====
 function splitTokensByTranslation(tokens) {
     const original = [];
@@ -622,7 +515,7 @@ function processTokensAndShow(tokens, settings) {
     if (hasTranslation) {
         const { original, translated } = splitTokensByTranslation(tokens);
         lastOriginalSubs = buildSubtitles(original, settings);
-        lastTranslatedSubs = alignTranslatedSubtitles(translated, lastOriginalSubs, settings);
+        lastTranslatedSubs = buildSubtitles(translated, settings);
         lastOriginalSrt = subtitlesToSrt(lastOriginalSubs);
         lastTranslatedSrt = subtitlesToSrt(lastTranslatedSubs);
     } else {

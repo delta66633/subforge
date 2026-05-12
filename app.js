@@ -334,6 +334,90 @@ function buildSubtitles(tokens, settings) {
     return subs;
 }
 
+// ===== Align Translated Subtitles 1:1 with Original =====
+function alignTranslatedSubtitles(translatedTokens, originalSubs, settings) {
+    if (!translatedTokens || translatedTokens.length === 0 || originalSubs.length === 0) return [];
+    
+    const translatedWords = tokensToWords(translatedTokens);
+    const alignedSubs = [];
+
+    let wIdx = 0;
+    for (let i = 0; i < originalSubs.length; i++) {
+        const sub = originalSubs[i];
+        let subWords = [];
+        
+        while (wIdx < translatedWords.length) {
+            const w = translatedWords[wIdx];
+            const wMid = (w.start_ms + w.end_ms) / 2;
+            
+            if (wMid < sub.start_ms) {
+                subWords.push(w);
+                wIdx++;
+            } else if (wMid <= sub.end_ms) {
+                subWords.push(w);
+                wIdx++;
+            } else {
+                if (i < originalSubs.length - 1) {
+                    const nextSub = originalSubs[i + 1];
+                    if (wMid < nextSub.start_ms) {
+                        const distToCurrent = wMid - sub.end_ms;
+                        const distToNext = nextSub.start_ms - wMid;
+                        if (distToCurrent <= distToNext) {
+                            subWords.push(w);
+                            wIdx++;
+                            continue;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                } else {
+                    subWords.push(w);
+                    wIdx++;
+                }
+            }
+        }
+        
+        let text = subWords.map(w => w.text).join(' ').replace(/\s+/g, ' ').trim();
+        
+        if (settings.speakerDiarization && settings.includeSpeakerLabel && subWords.length > 0 && subWords[0].speaker) {
+            text = `[${subWords[0].speaker}] ${text}`;
+        }
+        
+        if (settings.maxLines > 1 && text.length > settings.maxChars) {
+            const mid = Math.ceil(text.length / settings.maxLines);
+            const lines = [];
+            let pos = 0;
+            for (let l = 0; l < settings.maxLines && pos < text.length; l++) {
+                let end = Math.min(pos + mid, text.length);
+                if (l < settings.maxLines - 1 && end < text.length) {
+                    let sp = text.lastIndexOf(' ', end);
+                    if (sp > pos) end = sp;
+                }
+                lines.push(text.slice(pos, end).trim());
+                pos = end + (text[end] === ' ' ? 1 : 0);
+            }
+            text = lines.filter(Boolean).join('\n');
+        }
+        
+        alignedSubs.push({
+            start_ms: sub.start_ms,
+            end_ms: sub.end_ms,
+            text: text
+        });
+    }
+    
+    if (wIdx < translatedWords.length && alignedSubs.length > 0) {
+        const leftover = translatedWords.slice(wIdx).map(w => w.text).join(' ').replace(/\s+/g, ' ').trim();
+        if (leftover) {
+            alignedSubs[alignedSubs.length - 1].text += ' ' + leftover;
+        }
+    }
+    
+    return alignedSubs;
+}
+
 // ===== Separate original and translation tokens =====
 function splitTokensByTranslation(tokens) {
     const original = [];
@@ -515,7 +599,7 @@ function processTokensAndShow(tokens, settings) {
     if (hasTranslation) {
         const { original, translated } = splitTokensByTranslation(tokens);
         lastOriginalSubs = buildSubtitles(original, settings);
-        lastTranslatedSubs = buildSubtitles(translated, settings);
+        lastTranslatedSubs = alignTranslatedSubtitles(translated, lastOriginalSubs, settings);
         lastOriginalSrt = subtitlesToSrt(lastOriginalSubs);
         lastTranslatedSrt = subtitlesToSrt(lastTranslatedSubs);
     } else {

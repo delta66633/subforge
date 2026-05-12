@@ -307,7 +307,11 @@ function buildSubtitles(tokens, settings) {
             flush();
         } else if (settings.splitMode === 'sentence' && isSentenceEnd(lastChar)) {
             flush();
-        } else if (settings.splitMode === 'hybrid' && isSentenceEnd(lastChar) && lineLen >= settings.maxChars * 0.3) {
+        } else if (settings.splitMode === 'hybrid' && isSentenceEnd(lastChar)) {
+            // Hybrid: always flush on sentence end — char limit is a separate safety net
+            flush();
+        } else if (settings.splitMode === 'length' && isSentenceEnd(lastChar) && lineLen >= settings.maxChars * 0.5) {
+            // Length mode: still be sentence-aware when we have enough text (>50%)
             flush();
         }
     }

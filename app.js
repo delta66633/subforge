@@ -415,7 +415,30 @@ function alignTranslatedSubtitles(translatedTokens, originalSubs, settings) {
         }
     }
     
-    return alignedSubs;
+    // Clean up empty subtitles by merging their timeframes into adjacent subtitles
+    const cleaned = [];
+    let pendingStartMs = null;
+    for (let i = 0; i < alignedSubs.length; i++) {
+        const s = alignedSubs[i];
+        if (s.text.trim() === '') {
+            if (cleaned.length > 0) {
+                // Extend previous subtitle to cover this empty block
+                cleaned[cleaned.length - 1].end_ms = s.end_ms;
+            } else {
+                // If it's the very first block, save the start_ms for the next valid block
+                if (pendingStartMs === null) pendingStartMs = s.start_ms;
+            }
+        } else {
+            const newSub = { ...s };
+            if (pendingStartMs !== null) {
+                newSub.start_ms = pendingStartMs;
+                pendingStartMs = null;
+            }
+            cleaned.push(newSub);
+        }
+    }
+
+    return cleaned;
 }
 
 // ===== Separate original and translation tokens =====

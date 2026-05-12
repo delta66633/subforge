@@ -267,11 +267,9 @@ function buildSubtitles(tokens, settings) {
             flush();
         }
 
-        // In punctuation/sentence mode, only enforce duration limit (not char limit)
-        const useCharLimit = settings.splitMode === 'length' || settings.splitMode === 'hybrid';
+        // Enforce char limit and duration limit across all modes to ensure readability
         const shouldFlush = buf.length > 0 && (
-            (useCharLimit && currentLen > settings.maxChars) ||
-            currentDur > settings.maxDuration
+            currentLen > settings.maxChars || currentDur > settings.maxDuration
         );
 
         // Smart flush: try to break at a natural point (punctuation) instead of hard-cutting

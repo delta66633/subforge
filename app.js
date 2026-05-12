@@ -338,12 +338,32 @@ function buildSubtitles(tokens, settings) {
 function splitTokensByTranslation(tokens) {
     const original = [];
     const translated = [];
+
+    let blockStartMs = 0;
+    let blockEndMs = 0;
+    let inTranslationBlock = false;
+
     for (const t of tokens) {
-        const status = t.translation_status;
-        if (status === 'translation') {
-            translated.push(t);
+        if (t.translation_status === 'translation') {
+            inTranslationBlock = true;
+            let tCopy = { ...t };
+            // If translation token lacks proper timestamps, use the preceding original block's range
+            if (!tCopy.end_ms || (tCopy.start_ms === 0 && tCopy.end_ms === 0)) {
+                tCopy.start_ms = blockStartMs;
+                tCopy.end_ms = blockEndMs;
+            }
+            translated.push(tCopy);
         } else {
-            // "original" or undefined/null (no translation) -> original
+            if (inTranslationBlock) {
+                // Started a new block of original tokens
+                inTranslationBlock = false;
+                blockStartMs = t.start_ms || 0;
+            } else if (original.length === 0) {
+                blockStartMs = t.start_ms || 0;
+            }
+            if (t.end_ms) blockEndMs = t.end_ms;
+            
+            // Default original tokens
             original.push(t);
         }
     }

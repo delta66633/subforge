@@ -19,8 +19,11 @@ const PRICING = {
     inputAudioPerMillion: 1.50,   // $1.50 per 1M audio tokens
     inputTextPerMillion:  3.50,   // $3.50 per 1M text tokens
     outputTextPerMillion: 3.50,   // $3.50 per 1M output tokens
-    // 1 audio token ≈ 0.04 seconds of audio → 1 minute ≈ 1500 tokens → 1 hour ≈ 90,000 tokens
-    audioTokensPerSecond: 25,
+    // Actual API usage rates based on logs:
+    // 7,492s audio -> 62,435 audio tokens (~8.33 tokens/sec)
+    // 7,492s audio -> 34,845 output text tokens (~4.65 tokens/sec)
+    audioTokensPerSecond: 8.333,
+    outputTextTokensPerSecond: 4.651,
 };
 
 let selectedFileDurationSec = null;
@@ -57,9 +60,7 @@ async function getMediaDuration(file) {
 
 function estimateCostFromDuration(durationSec, withTranslation) {
     const audioTokens = durationSec * PRICING.audioTokensPerSecond;
-    // Output text tokens: roughly 150 words/min, ~5 chars/word → ~750 chars/min
-    // 1 text token ≈ 4 chars
-    const outputTokens = (durationSec / 60) * 750 / 4;
+    const outputTokens = durationSec * PRICING.outputTextTokensPerSecond;
     const translationTokens = withTranslation ? outputTokens * 1.5 : 0; // translation adds output
 
     const audioCost = (audioTokens / 1_000_000) * PRICING.inputAudioPerMillion;

@@ -498,3 +498,99 @@ input, select, button { font-family: inherit; }
     .btn-generate { width: 100%; justify-content: center; }
     .search-input { width: 120px; }
 }
+
+/* ===== Cost Estimate (pre-generation) ===== */
+.cost-estimate {
+    margin-top: 12px;
+    animation: fadeIn 0.35s ease;
+}
+.cost-estimate-inner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    background: rgba(251,146,60,0.06);
+    border: 1px solid rgba(251,146,60,0.2);
+    border-radius: var(--radius-sm);
+}
+.cost-icon {
+    font-size: 1.3rem;
+    line-height: 1;
+    flex-shrink: 0;
+    padding-top: 2px;
+}
+.cost-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.cost-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--orange);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.cost-value {
+    font-size: 1.35rem;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    color: var(--orange);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+}
+.cost-detail {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+.cost-detail-warning {
+    color: rgba(251,146,60,0.7);
+    margin-top: 2px;
+}
+
+/* ===== Actual Cost (post-generation) ===== */
+.actual-cost {
+    margin-top: 20px;
+    animation: fadeIn 0.4s ease;
+}
+.actual-cost-inner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 18px;
+    background: rgba(52,211,153,0.06);
+    border: 1px solid rgba(52,211,153,0.2);
+    border-radius: var(--radius-sm);
+}
+.actual-cost-inner.estimate-only {
+    background: rgba(167,139,250,0.05);
+    border-color: rgba(167,139,250,0.2);
+}
+.actual-cost-inner .cost-label {
+    color: var(--green);
+}
+.actual-cost-inner.estimate-only .cost-label {
+    color: var(--accent);
+}
+.cost-value.actual {
+    color: var(--green);
+    font-size: 1.5rem;
+}
+.actual-cost-inner.estimate-only .cost-value {
+    color: var(--accent);
+    font-size: 1.35rem;
+}
+.cost-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+}
+.breakdown-item {
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    line-height: 1.5;
+}

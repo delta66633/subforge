@@ -10,6 +10,76 @@ let lastTranslatedSubs = null;
 let lastOriginalSrt = '';
 let lastTranslatedSrt = '';
 let currentPreviewTab = 'original';
+// Cost tracking
+let lastActualUsage = null;
+
+// ===== Soniox Pricing (Async) =====
+// https://soniox.com/pricing
+const PRICING = {
+    inputAudioPerMillion: 1.50,   // $1.50 per 1M audio tokens
+    inputTextPerMillion:  3.50,   // $3.50 per 1M text tokens
+    outputTextPerMillion: 3.50,   // $3.50 per 1M output tokens
+    // 1 audio token ≈ 0.04 seconds of audio → 1 minute ≈ 1500 tokens → 1 hour ≈ 90,000 tokens
+    audioTokensPerSecond: 25,
+};
+
+function estimateCostFromFile(file, withTranslation) {
+    // Estimate audio duration from file size:
+    // Average audio bitrate ~128 kbps (common for mp3/aac etc.)
+    // Video files tend to be larger; use 200 kbps as conservative estimate
+    const isVideo = /\.(mp4|webm|mov|avi|mkv|asf)$/i.test(file.name);
+    const estimatedBitrateKbps = isVideo ? 200 : 128;
+    const estimatedDurationSec = (file.size * 8) / (estimatedBitrateKbps * 1000);
+
+    const audioTokens = estimatedDurationSec * PRICING.audioTokensPerSecond;
+    // Output text tokens: roughly 150 words/min, ~5 chars/word → ~750 chars/min
+    // 1 text token ≈ 4 chars
+    const outputTokens = (estimatedDurationSec / 60) * 750 / 4;
+    const translationTokens = withTranslation ? outputTokens * 1.5 : 0; // translation adds output
+
+    const audioCost = (audioTokens / 1_000_000) * PRICING.inputAudioPerMillion;
+    const outputCost = ((outputTokens + translationTokens) / 1_000_000) * PRICING.outputTextPerMillion;
+    const totalCost = audioCost + outputCost;
+
+    return {
+        estimatedDurationSec,
+        audioTokens,
+        outputTokens,
+        translationTokens,
+        audioCost,
+        outputCost,
+        totalCost,
+    };
+}
+
+function calcActualCost(usage) {
+    if (!usage) return null;
+    const audioCost = ((usage.input_audio_tokens || 0) / 1_000_000) * PRICING.inputAudioPerMillion;
+    const inputTextCost = ((usage.input_text_tokens || 0) / 1_000_000) * PRICING.inputTextPerMillion;
+    const outputTextCost = ((usage.output_text_tokens || 0) / 1_000_000) * PRICING.outputTextPerMillion;
+    return {
+        audioTokens: usage.input_audio_tokens || 0,
+        inputTextTokens: usage.input_text_tokens || 0,
+        outputTextTokens: usage.output_text_tokens || 0,
+        audioCost,
+        inputTextCost,
+        outputTextCost,
+        totalCost: audioCost + inputTextCost + outputTextCost,
+    };
+}
+
+function formatCost(usd) {
+    if (usd < 0.001) return `$${(usd * 100).toFixed(4)}¢`;
+    if (usd < 0.01) return `$${usd.toFixed(4)}`;
+    return `$${usd.toFixed(3)}`;
+}
+
+function formatDuration(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    if (m === 0) return `${s}초`;
+    return `${m}분 ${s}초`;
+}
 
 // ===== Utilities =====
 const $ = (s) => document.querySelector(s);
@@ -86,11 +156,35 @@ function handleFile(file) {
     selectedFile = file;
     cachedTokens = null;
     cachedWithTranslation = null;
+    lastActualUsage = null;
     $('#file-name').textContent = file.name;
     $('#file-size').textContent = formatSize(file.size);
     $('#file-info').style.display = 'flex';
     $('#drop-zone').style.display = 'none';
     updateGenerateBtn();
+    updateCostEstimate();
+}
+
+function updateCostEstimate() {
+    const el = $('#cost-estimate');
+    if (!el) return;
+    if (!selectedFile) { el.style.display = 'none'; return; }
+    const withTranslation = $('#enable-translation').checked;
+    const est = estimateCostFromFile(selectedFile, withTranslation);
+    const durStr = formatDuration(est.estimatedDurationSec);
+    const costStr = formatCost(est.totalCost);
+    el.style.display = '';
+    el.innerHTML = `
+        <div class="cost-estimate-inner">
+            <div class="cost-icon">💰</div>
+            <div class="cost-body">
+                <div class="cost-label">예상 API 비용</div>
+                <div class="cost-value">${costStr}</div>
+                <div class="cost-detail">추정 재생 길이: ~${durStr} · 오디오 토큰: ~${Math.round(est.audioTokens).toLocaleString()}</div>
+                ${withTranslation ? '<div class="cost-detail cost-detail-warning">번역 활성화로 비용이 증가합니다.</div>' : ''}
+            </div>
+        </div>
+    `;
 }
 
 // ===== Custom Dictionary =====
@@ -148,10 +242,12 @@ function initSettings() {
         if (e.target.checked && cachedWithTranslation !== $('#translation-target').value) {
             cachedTokens = null; // need fresh API call with translation
         }
+        updateCostEstimate();
     };
     // Invalidate cache only if translation is enabled and target language changed
     $('#translation-target').onchange = () => {
         if ($('#enable-translation').checked) cachedTokens = null;
+        updateCostEstimate();
     };
 }
 function getSettings() {
@@ -481,6 +577,8 @@ async function runPipeline() {
         const transcript = await apiFetch(`/v1/transcriptions/${transcriptionId}/transcript`);
         cachedTokens = transcript.tokens;
         cachedWithTranslation = settings.enableTranslation ? settings.translationTarget : null;
+        // Save usage info for cost display
+        lastActualUsage = transcript.usage || null;
 
         // Step 5: Build SRT(s)
         setProgress('generate', 85, 'SRT 생성 중...', '설정에 맞게 자막을 분할하고 있습니다.');
@@ -542,6 +640,9 @@ function showResult() {
     }
     $('#result-stats').textContent = statsText;
 
+    // Show actual cost if we have usage data
+    renderActualCost();
+
     // Show/hide translation elements
     const hasTranslated = !!lastTranslatedSubs;
     $('#btn-download-translated').style.display = hasTranslated ? '' : 'none';
@@ -594,6 +695,49 @@ function showResult() {
         const subs = currentPreviewTab === 'translated' ? lastTranslatedSubs : lastOriginalSubs;
         renderPreview(subs || lastOriginalSubs, q);
     };
+}
+
+function renderActualCost() {
+    const el = $('#actual-cost');
+    if (!el) return;
+    const actual = calcActualCost(lastActualUsage);
+    if (!actual) {
+        // No usage data from API — show estimate based on file
+        if (selectedFile) {
+            const withTranslation = lastTranslatedSubs !== null;
+            const est = estimateCostFromFile(selectedFile, withTranslation);
+            el.style.display = '';
+            el.innerHTML = `
+                <div class="actual-cost-inner estimate-only">
+                    <div class="cost-icon">💡</div>
+                    <div class="cost-body">
+                        <div class="cost-label">API 비용 (추정)</div>
+                        <div class="cost-value">${formatCost(est.totalCost)}</div>
+                        <div class="cost-detail">실제 토큰 데이터를 받지 못했습니다. 파일 크기 기반 추정치입니다.</div>
+                    </div>
+                </div>
+            `;
+        } else {
+            el.style.display = 'none';
+        }
+        return;
+    }
+
+    el.style.display = '';
+    el.innerHTML = `
+        <div class="actual-cost-inner">
+            <div class="cost-icon">✅</div>
+            <div class="cost-body">
+                <div class="cost-label">실제 사용 비용</div>
+                <div class="cost-value actual">${formatCost(actual.totalCost)}</div>
+                <div class="cost-breakdown">
+                    <span class="breakdown-item">🎙️ 오디오 ${actual.audioTokens.toLocaleString()}토큰 → ${formatCost(actual.audioCost)}</span>
+                    ${actual.inputTextTokens > 0 ? `<span class="breakdown-item">📝 입력텍스트 ${actual.inputTextTokens.toLocaleString()}토큰 → ${formatCost(actual.inputTextCost)}</span>` : ''}
+                    <span class="breakdown-item">📄 출력텍스트 ${actual.outputTextTokens.toLocaleString()}토큰 → ${formatCost(actual.outputTextCost)}</span>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 function renderPreview(subs, query = '') {

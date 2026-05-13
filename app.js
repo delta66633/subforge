@@ -80,6 +80,21 @@ function estimateCostFromDuration(durationSec, withTranslation) {
 
 function calcActualCost(usage) {
     if (!usage) return null;
+    
+    // If API provided exact costs, use them
+    if (usage.api_provided_cost && usage.api_provided_cost.totalCost > 0) {
+        return {
+            audioTokens: usage.input_audio_tokens || 0,
+            inputTextTokens: usage.input_text_tokens || 0,
+            outputTextTokens: usage.output_text_tokens || 0,
+            audioCost: usage.api_provided_cost.audioCost,
+            inputTextCost: usage.api_provided_cost.inputTextCost,
+            outputTextCost: usage.api_provided_cost.outputTextCost,
+            totalCost: usage.api_provided_cost.totalCost,
+        };
+    }
+
+    // Fallback manual calculation
     const audioCost = ((usage.input_audio_tokens || 0) / 1_000_000) * PRICING.inputAudioPerMillion;
     const inputTextCost = ((usage.input_text_tokens || 0) / 1_000_000) * PRICING.inputTextPerMillion;
     const outputTextCost = ((usage.output_text_tokens || 0) / 1_000_000) * PRICING.outputTextPerMillion;
@@ -597,12 +612,14 @@ async function runPipeline() {
         // Step 3: Poll for completion (exponential backoff: 1.5s → 2s → 3s → 5s max)
         let status = 'queued';
         let pollCount = 0;
+        let finalPoll = null;
         const pollIntervals = [1500, 2000, 2000, 3000, 3000, 5000]; // then stay at 5s
         while (status !== 'completed' && status !== 'error') {
             const interval = pollIntervals[Math.min(pollCount, pollIntervals.length - 1)];
             await new Promise(r => setTimeout(r, interval));
             const poll = await apiFetch(`/v1/transcriptions/${transcriptionId}`);
             status = poll.status;
+            finalPoll = poll;
             pollCount++;
             const pct = Math.min(30 + pollCount * 5, 70);
             const statusText = status === 'queued' ? '대기열에서 처리 대기 중...' : '음성을 텍스트로 변환 중...';
@@ -615,8 +632,23 @@ async function runPipeline() {
         const transcript = await apiFetch(`/v1/transcriptions/${transcriptionId}/transcript`);
         cachedTokens = transcript.tokens;
         cachedWithTranslation = settings.enableTranslation ? settings.translationTarget : null;
-        // Save usage info for cost display
-        lastActualUsage = transcript.usage || null;
+        
+        // Save actual usage info from the final poll response for cost display
+        if (finalPoll && finalPoll.input_audio_tokens !== undefined) {
+            lastActualUsage = {
+                input_audio_tokens: finalPoll.input_audio_tokens,
+                input_text_tokens: finalPoll.input_text_tokens,
+                output_text_tokens: finalPoll.output_text_tokens,
+                api_provided_cost: {
+                    audioCost: parseFloat(finalPoll.input_audio_cost_usd || 0),
+                    inputTextCost: parseFloat(finalPoll.input_text_cost_usd || 0),
+                    outputTextCost: parseFloat(finalPoll.output_text_cost_usd || 0),
+                    totalCost: parseFloat(finalPoll.cost_usd || 0)
+                }
+            };
+        } else {
+            lastActualUsage = null;
+        }
 
         // Step 5: Build SRT(s)
         setProgress('generate', 85, 'SRT 생성 중...', '설정에 맞게 자막을 분할하고 있습니다.');

@@ -110,7 +110,7 @@ function calcActualCost(usage) {
 }
 
 function formatCost(usd) {
-    if (usd < 0.001) return `$${(usd * 100).toFixed(4)}¢`;
+    if (usd === 0) return '$0.0000';
     if (usd < 0.01) return `$${usd.toFixed(4)}`;
     return `$${usd.toFixed(3)}`;
 }
@@ -633,7 +633,7 @@ async function runPipeline() {
         cachedTokens = transcript.tokens;
         cachedWithTranslation = settings.enableTranslation ? settings.translationTarget : null;
         
-        // Save actual usage info from the final poll response for cost display
+        // Save actual usage info from the final poll response if available
         if (finalPoll && finalPoll.input_audio_tokens !== undefined) {
             lastActualUsage = {
                 input_audio_tokens: finalPoll.input_audio_tokens,
@@ -647,7 +647,19 @@ async function runPipeline() {
                 }
             };
         } else {
-            lastActualUsage = null;
+            // Calculate exact tokens using duration and actual generated token count
+            const durationMs = selectedFileDurationSec * 1000;
+            // 1 hour (3,600,000ms) = 30,000 tokens => duration_ms / 120
+            const calculatedAudioTokens = Math.round(durationMs / 120);
+            const calculatedOutputTokens = cachedTokens ? cachedTokens.length : 0;
+            const termsLength = getCustomTerms().join(' ').length;
+            const calculatedInputTextTokens = termsLength > 0 ? Math.max(1, Math.round(termsLength / 4)) : 0;
+            
+            lastActualUsage = {
+                input_audio_tokens: calculatedAudioTokens,
+                input_text_tokens: calculatedInputTextTokens,
+                output_text_tokens: calculatedOutputTokens
+            };
         }
 
         // Step 5: Build SRT(s)

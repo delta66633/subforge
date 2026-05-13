@@ -343,22 +343,44 @@ function tokensToWords(tokens) {
     const words = [];
     let current = null;
     for (const t of tokens) {
-        const text = t.text;
-        if (!text || text.trim() === '') {
-            if (current) { current.text += text; current.end_ms = t.end_ms; }
+        let text = t.text;
+        if (!text) continue;
+
+        // If the token is just whitespace, append it and continue
+        if (text.trim() === '') {
+            if (current) { 
+                current.text += text; 
+                current.end_ms = t.end_ms; 
+            }
             continue;
         }
-        const startsWithSpace = text.startsWith(' ');
-        if (startsWithSpace || !current) {
+
+        let startNewWord = false;
+        
+        // Case 1: Token starts with a space
+        if (text.startsWith(' ')) {
+            startNewWord = true;
+            text = text.slice(1); // Remove leading space (join will add it back)
+        } 
+        // Case 2: Previous token ended with a space
+        else if (current && current.text.endsWith(' ')) {
+            startNewWord = true;
+            current.text = current.text.trimEnd(); // Remove trailing space
+        }
+
+        if (startNewWord || !current) {
             if (current) words.push(current);
-            current = { text: startsWithSpace ? text.slice(1) : text, start_ms: t.start_ms, end_ms: t.end_ms, speaker: t.speaker || null };
+            current = { text: text, start_ms: t.start_ms, end_ms: t.end_ms, speaker: t.speaker || null };
         } else {
             current.text += text;
             current.end_ms = t.end_ms;
             if (t.speaker) current.speaker = t.speaker;
         }
     }
-    if (current) words.push(current);
+    if (current) {
+        current.text = current.text.trimEnd();
+        words.push(current);
+    }
     return words;
 }
 

@@ -316,6 +316,7 @@ function getSettings() {
         enableTranslation: $('#enable-translation').checked,
         translationTarget: $('#translation-target').value,
         extendSubtitles: $('#extend-subtitles').checked,
+        breakAtCommas: $('#break-at-commas') ? $('#break-at-commas').checked : true,
     };
 }
 
@@ -384,7 +385,12 @@ function tokensToWords(tokens) {
     return words;
 }
 
-function isPunctuation(ch) {
+function isPunctuation(ch, settings) {
+    if (settings && !settings.breakAtCommas) {
+        // Exclude commas from the punctuation regex
+        return /[.!?。！？;:；：\n]/.test(ch);
+    }
+    // Include commas
     return /[.!?。！？，,;:；：、\n]/.test(ch);
 }
 
@@ -450,7 +456,7 @@ function buildSubtitles(tokens, settings) {
             const searchStart = Math.max(1, Math.floor(buf.length * 0.4)); // search last 60%
             for (let i = buf.length - 1; i >= searchStart; i--) {
                 const lastCh = buf[i].text.slice(-1);
-                if (isPunctuation(lastCh)) {
+                if (isPunctuation(lastCh, settings)) {
                     bestBreak = i;
                     break;
                 }
@@ -472,7 +478,7 @@ function buildSubtitles(tokens, settings) {
         lineLen = buf.map(w => w.text).join(' ').length;
 
         const lastChar = word.text.slice(-1);
-        if (settings.splitMode === 'punctuation' && isPunctuation(lastChar)) {
+        if (settings.splitMode === 'punctuation' && isPunctuation(lastChar, settings)) {
             flush();
         } else if (settings.splitMode === 'sentence' && isSentenceEnd(lastChar)) {
             flush();

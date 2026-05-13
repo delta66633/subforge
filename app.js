@@ -23,18 +23,43 @@ const PRICING = {
     audioTokensPerSecond: 25,
 };
 
-function estimateCostFromFile(file, withTranslation) {
-    // Estimate audio duration from file size:
-    // Average audio bitrate ~128 kbps (common for mp3/aac etc.)
-    // Video files tend to be larger; use 200 kbps as conservative estimate
-    const isVideo = /\.(mp4|webm|mov|avi|mkv|asf)$/i.test(file.name);
-    const estimatedBitrateKbps = isVideo ? 200 : 128;
-    const estimatedDurationSec = (file.size * 8) / (estimatedBitrateKbps * 1000);
+let selectedFileDurationSec = null;
 
-    const audioTokens = estimatedDurationSec * PRICING.audioTokensPerSecond;
+async function getMediaDuration(file) {
+    return new Promise((resolve) => {
+        const url = URL.createObjectURL(file);
+        const el = document.createElement('video');
+        
+        const fallback = () => {
+            const isVideo = /\.(mp4|webm|mov|avi|mkv|asf)$/i.test(file.name);
+            // Use 2500 kbps for typical videos instead of 200 to prevent crazy overestimations
+            const estimatedBitrateKbps = isVideo ? 2500 : 128;
+            resolve((file.size * 8) / (estimatedBitrateKbps * 1000));
+        };
+
+        el.onloadedmetadata = () => {
+            URL.revokeObjectURL(url);
+            if (el.duration && el.duration !== Infinity && !isNaN(el.duration)) {
+                resolve(el.duration);
+            } else {
+                fallback();
+            }
+        };
+        
+        el.onerror = () => {
+            URL.revokeObjectURL(url);
+            fallback();
+        };
+        
+        el.src = url;
+    });
+}
+
+function estimateCostFromDuration(durationSec, withTranslation) {
+    const audioTokens = durationSec * PRICING.audioTokensPerSecond;
     // Output text tokens: roughly 150 words/min, ~5 chars/word → ~750 chars/min
     // 1 text token ≈ 4 chars
-    const outputTokens = (estimatedDurationSec / 60) * 750 / 4;
+    const outputTokens = (durationSec / 60) * 750 / 4;
     const translationTokens = withTranslation ? outputTokens * 1.5 : 0; // translation adds output
 
     const audioCost = (audioTokens / 1_000_000) * PRICING.inputAudioPerMillion;
@@ -42,7 +67,7 @@ function estimateCostFromFile(file, withTranslation) {
     const totalCost = audioCost + outputCost;
 
     return {
-        estimatedDurationSec,
+        estimatedDurationSec: durationSec,
         audioTokens,
         outputTokens,
         translationTokens,
@@ -145,15 +170,17 @@ function initFileUpload() {
     dz.ondragleave = () => dz.classList.remove('dragover');
     dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove('dragover'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); };
     $('#remove-file').onclick = () => {
-        selectedFile = null; cachedTokens = null; cachedWithTranslation = null;
+        selectedFile = null; selectedFileDurationSec = null; cachedTokens = null; cachedWithTranslation = null;
         $('#file-info').style.display = 'none';
         $('#drop-zone').style.display = '';
         $('#file-input').value = '';
         updateGenerateBtn();
+        updateCostEstimate();
     };
 }
-function handleFile(file) {
+async function handleFile(file) {
     selectedFile = file;
+    selectedFileDurationSec = null;
     cachedTokens = null;
     cachedWithTranslation = null;
     lastActualUsage = null;
@@ -162,15 +189,25 @@ function handleFile(file) {
     $('#file-info').style.display = 'flex';
     $('#drop-zone').style.display = 'none';
     updateGenerateBtn();
-    updateCostEstimate();
+    
+    const el = $('#cost-estimate');
+    if (el) {
+        el.style.display = '';
+        el.innerHTML = '<div class="cost-estimate-inner"><div class="cost-detail" style="padding: 6px;">미디어 길이를 분석하는 중...</div></div>';
+    }
+
+    selectedFileDurationSec = await getMediaDuration(file);
+    if (selectedFile === file) {
+        updateCostEstimate();
+    }
 }
 
 function updateCostEstimate() {
     const el = $('#cost-estimate');
     if (!el) return;
-    if (!selectedFile) { el.style.display = 'none'; return; }
+    if (!selectedFile || selectedFileDurationSec === null) { el.style.display = 'none'; return; }
     const withTranslation = $('#enable-translation').checked;
-    const est = estimateCostFromFile(selectedFile, withTranslation);
+    const est = estimateCostFromDuration(selectedFileDurationSec, withTranslation);
     const durStr = formatDuration(est.estimatedDurationSec);
     const costStr = formatCost(est.totalCost);
     el.style.display = '';
@@ -703,9 +740,9 @@ function renderActualCost() {
     const actual = calcActualCost(lastActualUsage);
     if (!actual) {
         // No usage data from API — show estimate based on file
-        if (selectedFile) {
+        if (selectedFile && selectedFileDurationSec !== null) {
             const withTranslation = lastTranslatedSubs !== null;
-            const est = estimateCostFromFile(selectedFile, withTranslation);
+            const est = estimateCostFromDuration(selectedFileDurationSec, withTranslation);
             el.style.display = '';
             el.innerHTML = `
                 <div class="actual-cost-inner estimate-only">

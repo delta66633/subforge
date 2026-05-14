@@ -149,7 +149,9 @@ async function apiFetch(endpoint, opts = {}) {
     const res = await fetch(`${API_BASE}${endpoint}`, { ...opts, headers, signal: abortController?.signal });
     if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || `HTTP ${res.status}`);
+        console.error("Soniox API Error:", err);
+        const errMsg = err.error_message || err.message || JSON.stringify(err);
+        throw new Error(errMsg || `HTTP ${res.status}`);
     }
     if (opts.method === 'DELETE') return null;
     return res.json();
@@ -604,7 +606,9 @@ async function runPipeline() {
         // Step 1: Upload
         setProgress('upload', 10, '파일 업로드 중...', `${selectedFile.name} (${formatSize(selectedFile.size)})`);
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        // Use a safe ASCII filename to prevent 400 Bad Request on servers that fail to parse Unicode filenames
+        const ext = selectedFile.name.includes('.') ? selectedFile.name.substring(selectedFile.name.lastIndexOf('.')) : '';
+        formData.append('file', selectedFile, 'upload' + ext);
         const uploadRes = await apiFetch('/v1/files', { method: 'POST', body: formData });
         fileId = uploadRes.id;
         setProgress('upload', 25, '업로드 완료', '음성 인식을 시작합니다.');

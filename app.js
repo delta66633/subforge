@@ -603,6 +603,10 @@ async function runPipeline() {
             return;
         }
 
+        if (selectedFile.size > 1073741824) {
+            throw new Error(`파일 크기(${formatSize(selectedFile.size)})가 1GB를 초과합니다. 용량이 더 작은 파일이나 오디오 전용 파일을 사용해주세요.`);
+        }
+
         // Step 1: Upload
         setProgress('upload', 10, '파일 업로드 중...', `${selectedFile.name} (${formatSize(selectedFile.size)})`);
         const formData = new FormData();

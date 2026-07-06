@@ -280,7 +280,7 @@ function initSettings() {
     // Disable max-chars when split mode doesn't use it
     const updateMaxCharsState = () => {
         const mode = $('#split-mode').value;
-        const disabled = mode === 'punctuation' || mode === 'sentence';
+        const disabled = mode === 'word' || mode === 'punctuation' || mode === 'sentence';
         mc.disabled = disabled;
         mc.closest('.setting-group').style.opacity = disabled ? '0.4' : '1';
         mc.closest('.setting-group').style.pointerEvents = disabled ? 'none' : '';
@@ -480,7 +480,9 @@ function buildSubtitles(tokens, settings) {
         lineLen = buf.map(w => w.text).join(' ').length;
 
         const lastChar = word.text.slice(-1);
-        if (settings.splitMode === 'punctuation' && isPunctuation(lastChar, settings)) {
+        if (settings.splitMode === 'word') {
+            flush();
+        } else if (settings.splitMode === 'punctuation' && isPunctuation(lastChar, settings)) {
             flush();
         } else if (settings.splitMode === 'sentence' && isSentenceEnd(lastChar)) {
             flush();
